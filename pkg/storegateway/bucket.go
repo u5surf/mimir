@@ -796,7 +796,8 @@ func filterPostingsByCachedShardHash(ps []storage.SeriesRef, shard *sharding.Sha
 	return ps, stats
 }
 
-func populateChunk(out *storepb.AggrChunk, in chunkenc.Chunk, aggrs []storepb.Aggr, getChunk func() *storepb.Chunk, save func([]byte) ([]byte, error)) error {
+func populateChunk(out *storepb.AggrChunk, chunkBytes []byte, aggrs []storepb.Aggr, getChunk func() *storepb.Chunk, save func([]byte) ([]byte, error)) error {
+	in := rawChunk(chunkBytes)
 	if in.Encoding() == chunkenc.EncXOR {
 		b, err := save(in.Bytes())
 		if err != nil {
@@ -2652,7 +2653,7 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		// There is also crc32 after the chunk, but we ignore that.
 		chunkLen = n + 1 + int(chunkDataLen)
 		if chunkLen <= len(cb) {
-			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), rawChunk(cb[n:chunkLen]), aggrs, r.block.chunksPool.get, r.save)
+			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), cb[n:chunkLen], aggrs, r.block.chunksPool.get, r.save)
 			if err != nil {
 				return errors.Wrap(err, "populate chunk")
 			}
@@ -2683,7 +2684,8 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		r.stats.chunksFetchCount++
 		r.stats.chunksFetchDurationSum += time.Since(fetchBegin)
 		r.stats.chunksFetchedSizeSum += len(*nb)
-		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), rawChunk((*nb)[n:]), aggrs, r.block.chunksPool.get, r.save)
+
+		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), (*nb)[n:], aggrs, r.block.chunksPool.get, r.save)
 		if err != nil {
 			r.block.chunkBytesPool.Put(nb)
 			return errors.Wrap(err, "populate chunk")
