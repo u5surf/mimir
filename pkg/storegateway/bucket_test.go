@@ -1150,7 +1150,7 @@ func TestBucketSeries_OneBlock_InMemIndexCacheSegfault(t *testing.T) {
 		Source:     metadata.TestSource,
 	}
 
-	chunkPool, err := pool.NewBucketedBytes(chunkBytesPoolMinSize, chunkBytesPoolMaxSize, 2, 100e7)
+	chunkBytesPool, err := pool.NewBucketedBytes(chunkBytesPoolMinSize, chunkBytesPoolMaxSize, 2, 100e7)
 	assert.NoError(t, err)
 
 	indexCache, err := indexcache.NewInMemoryIndexCacheWithConfig(logger, nil, indexcache.InMemoryIndexCacheConfig{
@@ -1196,14 +1196,15 @@ func TestBucketSeries_OneBlock_InMemIndexCacheSegfault(t *testing.T) {
 		assert.NoError(t, block.Upload(context.Background(), logger, bkt, filepath.Join(blockDir, id.String()), metadata.NoneFunc))
 
 		b1 = &bucketBlock{
-			indexCache:  indexCache,
-			logger:      logger,
-			metrics:     NewBucketStoreMetrics(nil),
-			bkt:         bkt,
-			meta:        meta,
-			partitioner: newGapBasedPartitioner(mimir_tsdb.DefaultPartitionerMaxGapSize, nil),
-			chunkObjs:   []string{filepath.Join(id.String(), "chunks", "000001")},
-			chunkPool:   chunkPool,
+			indexCache:     indexCache,
+			logger:         logger,
+			metrics:        NewBucketStoreMetrics(nil),
+			bkt:            bkt,
+			meta:           meta,
+			partitioner:    newGapBasedPartitioner(mimir_tsdb.DefaultPartitionerMaxGapSize, nil),
+			chunkObjs:      []string{filepath.Join(id.String(), "chunks", "000001")},
+			chunksPool:     newChunksPool(),
+			chunkBytesPool: chunkBytesPool,
 		}
 		b1.indexHeaderReader, err = indexheader.NewBinaryReader(context.Background(), log.NewNopLogger(), bkt, tmpDir, b1.meta.ULID, mimir_tsdb.DefaultPostingOffsetInMemorySampling, indexheader.BinaryReaderConfig{})
 		assert.NoError(t, err)
@@ -1235,14 +1236,15 @@ func TestBucketSeries_OneBlock_InMemIndexCacheSegfault(t *testing.T) {
 		assert.NoError(t, block.Upload(context.Background(), logger, bkt, filepath.Join(blockDir, id.String()), metadata.NoneFunc))
 
 		b2 = &bucketBlock{
-			indexCache:  indexCache,
-			logger:      logger,
-			metrics:     NewBucketStoreMetrics(nil),
-			bkt:         bkt,
-			meta:        meta,
-			partitioner: newGapBasedPartitioner(mimir_tsdb.DefaultPartitionerMaxGapSize, nil),
-			chunkObjs:   []string{filepath.Join(id.String(), "chunks", "000001")},
-			chunkPool:   chunkPool,
+			indexCache:     indexCache,
+			logger:         logger,
+			metrics:        NewBucketStoreMetrics(nil),
+			bkt:            bkt,
+			meta:           meta,
+			partitioner:    newGapBasedPartitioner(mimir_tsdb.DefaultPartitionerMaxGapSize, nil),
+			chunkObjs:      []string{filepath.Join(id.String(), "chunks", "000001")},
+			chunksPool:     newChunksPool(),
+			chunkBytesPool: chunkBytesPool,
 		}
 		b2.indexHeaderReader, err = indexheader.NewBinaryReader(context.Background(), log.NewNopLogger(), bkt, tmpDir, b2.meta.ULID, mimir_tsdb.DefaultPostingOffsetInMemorySampling, indexheader.BinaryReaderConfig{})
 		assert.NoError(t, err)
@@ -1984,6 +1986,8 @@ func prepareBucket(b *testing.B) (*bucketBlock, *metadata.Meta) {
 }
 
 func benchmarkBlockSeriesWithConcurrency(b *testing.B, concurrency int, blockMeta *metadata.Meta, blk *bucketBlock, aggrs []storepb.Aggr, queryShardingEnabled bool) {
+	b.ReportAllocs()
+
 	ctx := context.Background()
 
 	// Run the same number of queries per goroutine.

@@ -796,13 +796,16 @@ func filterPostingsByCachedShardHash(ps []storage.SeriesRef, shard *sharding.Sha
 	return ps, stats
 }
 
-func populateChunk(out *storepb.AggrChunk, in chunkenc.Chunk, aggrs []storepb.Aggr, save func([]byte) ([]byte, error)) error {
+func populateChunk(out *storepb.AggrChunk, in chunkenc.Chunk, aggrs []storepb.Aggr, getChunk func() *storepb.Chunk, save func([]byte) ([]byte, error)) error {
 	if in.Encoding() == chunkenc.EncXOR {
 		b, err := save(in.Bytes())
 		if err != nil {
 			return err
 		}
-		out.Raw = &storepb.Chunk{Type: storepb.Chunk_XOR, Data: b}
+		chk := getChunk()
+		chk.Type = storepb.Chunk_XOR
+		chk.Data = b
+		out.Raw = chk
 		return nil
 	}
 	return errors.Errorf("unsupported chunk encoding %d", in.Encoding())
@@ -1536,14 +1539,15 @@ func (s *bucketBlockSet) getFor(mint, maxt, maxResolutionMillis int64, blockMatc
 // bucketBlock represents a block that is located in a bucket. It holds intermediate
 // state for the block on local disk.
 type bucketBlock struct {
-	userID     string
-	logger     log.Logger
-	metrics    *BucketStoreMetrics
-	bkt        objstore.BucketReader
-	meta       *metadata.Meta
-	dir        string
-	indexCache indexcache.IndexCache
-	chunkPool  pool.Bytes
+	userID         string
+	logger         log.Logger
+	metrics        *BucketStoreMetrics
+	bkt            objstore.BucketReader
+	meta           *metadata.Meta
+	dir            string
+	indexCache     indexcache.IndexCache
+	chunksPool     *chunksPool
+	chunkBytesPool pool.Bytes
 
 	indexHeaderReader indexheader.Reader
 
@@ -1569,7 +1573,7 @@ func newBucketBlock(
 	bkt objstore.BucketReader,
 	dir string,
 	indexCache indexcache.IndexCache,
-	chunkPool pool.Bytes,
+	chunkBytesPool pool.Bytes,
 	indexHeadReader indexheader.Reader,
 	p Partitioner,
 ) (b *bucketBlock, err error) {
@@ -1579,7 +1583,8 @@ func newBucketBlock(
 		metrics:           metrics,
 		bkt:               bkt,
 		indexCache:        indexCache,
-		chunkPool:         chunkPool,
+		chunksPool:        newChunksPool(),
+		chunkBytesPool:    chunkBytesPool,
 		dir:               dir,
 		partitioner:       p,
 		meta:              meta,
@@ -1643,7 +1648,7 @@ func (b *bucketBlock) readChunkRange(ctx context.Context, seq int, off, length i
 	defer runutil.CloseWithLogOnErr(b.logger, reader, "readChunkRange close range reader")
 
 	// Get a buffer from the pool.
-	chunkBuffer, err := b.chunkPool.Get(chunkRanges.size())
+	chunkBuffer, err := b.chunkBytesPool.Get(chunkRanges.size())
 	if err != nil {
 		return nil, errors.Wrap(err, "allocate chunk bytes")
 	}
@@ -2493,6 +2498,7 @@ type bucketChunkReader struct {
 	mtx        sync.Mutex
 	stats      *queryStats
 	chunkBytes []*[]byte // Byte slice to return to the chunk pool on close.
+	results    [][]seriesEntry
 }
 
 func newBucketChunkReader(ctx context.Context, block *bucketBlock) *bucketChunkReader {
@@ -2508,9 +2514,25 @@ func (r *bucketChunkReader) Close() error {
 	r.block.pendingReaders.Done()
 
 	for _, b := range r.chunkBytes {
-		r.block.chunkPool.Put(b)
+		r.block.chunkBytesPool.Put(b)
 	}
+	r.asyncPutChunks()
 	return nil
+}
+
+func (r *bucketChunkReader) asyncPutChunks() {
+	if len(r.results) == 0 {
+		return
+	}
+	go func() {
+		for _, res := range r.results {
+			for _, ent := range res {
+				for _, chk := range ent.chks {
+					r.block.chunksPool.put(chk.Raw)
+				}
+			}
+		}
+	}()
 }
 
 // addLoad adds the chunk with id to the data set to be fetched.
@@ -2548,7 +2570,13 @@ func (r *bucketChunkReader) load(res []seriesEntry, aggrs []storepb.Aggr) error 
 			})
 		}
 	}
-	return g.Wait()
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	r.mtx.Lock()
+	r.results = append(r.results, res)
+	r.mtx.Unlock()
+	return nil
 }
 
 // loadChunks will read range [start, end] from the segment file with sequence number seq.
@@ -2624,7 +2652,7 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		// There is also crc32 after the chunk, but we ignore that.
 		chunkLen = n + 1 + int(chunkDataLen)
 		if chunkLen <= len(cb) {
-			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), rawChunk(cb[n:chunkLen]), aggrs, r.save)
+			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), rawChunk(cb[n:chunkLen]), aggrs, r.block.chunksPool.get, r.save)
 			if err != nil {
 				return errors.Wrap(err, "populate chunk")
 			}
@@ -2655,15 +2683,15 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		r.stats.chunksFetchCount++
 		r.stats.chunksFetchDurationSum += time.Since(fetchBegin)
 		r.stats.chunksFetchedSizeSum += len(*nb)
-		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), rawChunk((*nb)[n:]), aggrs, r.save)
+		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), rawChunk((*nb)[n:]), aggrs, r.block.chunksPool.get, r.save)
 		if err != nil {
-			r.block.chunkPool.Put(nb)
+			r.block.chunkBytesPool.Put(nb)
 			return errors.Wrap(err, "populate chunk")
 		}
 		r.stats.chunksTouched++
 		r.stats.chunksTouchedSizeSum += int(chunkDataLen)
 
-		r.block.chunkPool.Put(nb)
+		r.block.chunkBytesPool.Put(nb)
 	}
 	return nil
 }
@@ -2674,7 +2702,7 @@ func (r *bucketChunkReader) save(b []byte) ([]byte, error) {
 	// Ensure we never grow slab beyond original capacity.
 	if len(r.chunkBytes) == 0 ||
 		cap(*r.chunkBytes[len(r.chunkBytes)-1])-len(*r.chunkBytes[len(r.chunkBytes)-1]) < len(b) {
-		s, err := r.block.chunkPool.Get(len(b))
+		s, err := r.block.chunkBytesPool.Get(len(b))
 		if err != nil {
 			return nil, errors.Wrap(err, "allocate chunk bytes")
 		}
