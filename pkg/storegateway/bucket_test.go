@@ -1203,7 +1203,7 @@ func TestBucketSeries_OneBlock_InMemIndexCacheSegfault(t *testing.T) {
 			meta:           meta,
 			partitioner:    newGapBasedPartitioner(mimir_tsdb.DefaultPartitionerMaxGapSize, nil),
 			chunkObjs:      []string{filepath.Join(id.String(), "chunks", "000001")},
-			chunksPool:     newChunksPool(),
+			chunkSlicePool: newChunksSlicePool(),
 			chunkBytesPool: chunkBytesPool,
 		}
 		b1.indexHeaderReader, err = indexheader.NewBinaryReader(context.Background(), log.NewNopLogger(), bkt, tmpDir, b1.meta.ULID, mimir_tsdb.DefaultPostingOffsetInMemorySampling, indexheader.BinaryReaderConfig{})
@@ -1243,7 +1243,7 @@ func TestBucketSeries_OneBlock_InMemIndexCacheSegfault(t *testing.T) {
 			meta:           meta,
 			partitioner:    newGapBasedPartitioner(mimir_tsdb.DefaultPartitionerMaxGapSize, nil),
 			chunkObjs:      []string{filepath.Join(id.String(), "chunks", "000001")},
-			chunksPool:     newChunksPool(),
+			chunkSlicePool: newChunksSlicePool(),
 			chunkBytesPool: chunkBytesPool,
 		}
 		b2.indexHeaderReader, err = indexheader.NewBinaryReader(context.Background(), log.NewNopLogger(), bkt, tmpDir, b2.meta.ULID, mimir_tsdb.DefaultPostingOffsetInMemorySampling, indexheader.BinaryReaderConfig{})

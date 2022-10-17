@@ -1547,7 +1547,7 @@ type bucketBlock struct {
 	meta           *metadata.Meta
 	dir            string
 	indexCache     indexcache.IndexCache
-	chunksPool     *chunksPool
+	chunkSlicePool *chunkSlicePool
 	chunkBytesPool pool.Bytes
 
 	indexHeaderReader indexheader.Reader
@@ -1584,7 +1584,7 @@ func newBucketBlock(
 		metrics:           metrics,
 		bkt:               bkt,
 		indexCache:        indexCache,
-		chunksPool:        newChunksPool(),
+		chunkSlicePool:    newChunksSlicePool(),
 		chunkBytesPool:    chunkBytesPool,
 		dir:               dir,
 		partitioner:       p,
@@ -2496,10 +2496,10 @@ type bucketChunkReader struct {
 
 	// Mutex protects access to following fields, when updated from chunks-loading goroutines.
 	// After chunks are loaded, mutex is no longer used.
-	mtx        sync.Mutex
-	stats      *queryStats
-	chunkBytes []*[]byte // Byte slice to return to the chunk pool on close.
-	results    [][]seriesEntry
+	mtx         sync.Mutex
+	stats       *queryStats
+	chunkBytes  []*[]byte // Byte slice to return to the chunk pool on close.
+	chunkSlices []*chunkSlice
 }
 
 func newBucketChunkReader(ctx context.Context, block *bucketBlock) *bucketChunkReader {
@@ -2517,23 +2517,10 @@ func (r *bucketChunkReader) Close() error {
 	for _, b := range r.chunkBytes {
 		r.block.chunkBytesPool.Put(b)
 	}
-	r.asyncPutChunks()
-	return nil
-}
-
-func (r *bucketChunkReader) asyncPutChunks() {
-	if len(r.results) == 0 {
-		return
+	for _, s := range r.chunkSlices {
+		r.block.chunkSlicePool.put(s)
 	}
-	go func() {
-		for _, res := range r.results {
-			for _, ent := range res {
-				for _, chk := range ent.chks {
-					r.block.chunksPool.put(chk.Raw)
-				}
-			}
-		}
-	}()
+	return nil
 }
 
 // addLoad adds the chunk with id to the data set to be fetched.
@@ -2574,9 +2561,6 @@ func (r *bucketChunkReader) load(res []seriesEntry, aggrs []storepb.Aggr) error 
 	if err := g.Wait(); err != nil {
 		return err
 	}
-	r.mtx.Lock()
-	r.results = append(r.results, res)
-	r.mtx.Unlock()
 	return nil
 }
 
@@ -2653,7 +2637,7 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		// There is also crc32 after the chunk, but we ignore that.
 		chunkLen = n + 1 + int(chunkDataLen)
 		if chunkLen <= len(cb) {
-			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), cb[n:chunkLen], aggrs, r.block.chunksPool.get, r.save)
+			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), cb[n:chunkLen], aggrs, r.getChunk, r.save)
 			if err != nil {
 				return errors.Wrap(err, "populate chunk")
 			}
@@ -2685,7 +2669,7 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		r.stats.chunksFetchDurationSum += time.Since(fetchBegin)
 		r.stats.chunksFetchedSizeSum += len(*nb)
 
-		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), (*nb)[n:], aggrs, r.block.chunksPool.get, r.save)
+		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), (*nb)[n:], aggrs, r.getChunk, r.save)
 		if err != nil {
 			r.block.chunkBytesPool.Put(nb)
 			return errors.Wrap(err, "populate chunk")
@@ -2696,6 +2680,13 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		r.block.chunkBytesPool.Put(nb)
 	}
 	return nil
+}
+
+func (r *bucketChunkReader) getChunk() *storepb.Chunk {
+	if len(r.chunkSlices) == 0 || r.chunkSlices[len(r.chunkSlices)-1].isExhausted() {
+		r.chunkSlices = append(r.chunkSlices, r.block.chunkSlicePool.get())
+	}
+	return r.chunkSlices[len(r.chunkSlices)-1].next()
 }
 
 // save saves a copy of b's payload to a memory pool of its own and returns a new byte slice referencing said copy.
