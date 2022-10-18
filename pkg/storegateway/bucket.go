@@ -570,7 +570,6 @@ func blockSeries(
 	seriesLimiter SeriesLimiter, // Rate limiter for loading series.
 	skipChunks bool, // If true, chunks are not loaded and minTime/maxTime are ignored.
 	minTime, maxTime int64, // Series must have data in this time range to be returned (ignored if skipChunks=true).
-	loadAggregates []storepb.Aggr, // List of aggregates to load when loading chunks.
 	logger log.Logger,
 ) (storepb.SeriesSet, *queryStats, error) {
 	span, ctx := tracing.StartSpan(ctx, "blockSeries()")
@@ -708,7 +707,7 @@ func blockSeries(
 		return newBucketSeriesSet(res), indexr.stats.merge(&seriesCacheStats), nil
 	}
 
-	if err := chunkr.load(res, loadAggregates); err != nil {
+	if err := chunkr.load(res); err != nil {
 		return nil, nil, errors.Wrap(err, "load chunks")
 	}
 
@@ -796,7 +795,7 @@ func filterPostingsByCachedShardHash(ps []storage.SeriesRef, shard *sharding.Sha
 	return ps, stats
 }
 
-func populateChunk(out *storepb.AggrChunk, chunkBytes []byte, aggrs []storepb.Aggr, getChunk func() *storepb.Chunk, save func([]byte) ([]byte, error)) error {
+func populateChunk(out *storepb.AggrChunk, chunkBytes []byte, getChunk func() *storepb.Chunk, save func([]byte) ([]byte, error)) error {
 	in := rawChunk(chunkBytes)
 	if in.Encoding() == chunkenc.EncXOR {
 		b, err := save(in.Bytes())
@@ -952,7 +951,6 @@ func (s *BucketStore) Series(req *storepb.SeriesRequest, srv storepb.Store_Serie
 				seriesLimiter,
 				req.SkipChunks,
 				req.MinTime, req.MaxTime,
-				req.Aggregates,
 				s.logger,
 			)
 			if err != nil {
@@ -1180,7 +1178,7 @@ func blockLabelNames(ctx context.Context, indexr *bucketIndexReader, matchers []
 
 	// We ignore request's min/max time and query the entire block to make the result cacheable.
 	minTime, maxTime := indexr.block.meta.MinTime, indexr.block.meta.MaxTime
-	seriesSet, _, err := blockSeries(ctx, indexr, nil, matchers, nil, nil, nil, seriesLimiter, true, minTime, maxTime, nil, logger)
+	seriesSet, _, err := blockSeries(ctx, indexr, nil, matchers, nil, nil, nil, seriesLimiter, true, minTime, maxTime, logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "fetch series")
 	}
@@ -2538,7 +2536,7 @@ func (r *bucketChunkReader) addLoad(id chunks.ChunkRef, seriesEntry, chunk int) 
 }
 
 // load loads all added chunks and saves resulting aggrs to res.
-func (r *bucketChunkReader) load(res []seriesEntry, aggrs []storepb.Aggr) error {
+func (r *bucketChunkReader) load(res []seriesEntry) error {
 	g, ctx := errgroup.WithContext(r.ctx)
 
 	for seq, pIdxs := range r.toLoad {
@@ -2554,7 +2552,7 @@ func (r *bucketChunkReader) load(res []seriesEntry, aggrs []storepb.Aggr) error 
 			p := p
 			indices := pIdxs[p.ElemRng[0]:p.ElemRng[1]]
 			g.Go(func() error {
-				return r.loadChunks(ctx, res, aggrs, seq, p, indices)
+				return r.loadChunks(ctx, res, seq, p, indices)
 			})
 		}
 	}
@@ -2566,7 +2564,7 @@ func (r *bucketChunkReader) load(res []seriesEntry, aggrs []storepb.Aggr) error 
 
 // loadChunks will read range [start, end] from the segment file with sequence number seq.
 // This data range covers chunks starting at supplied offsets.
-func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, aggrs []storepb.Aggr, seq int, part Part, pIdxs []loadIdx) error {
+func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, seq int, part Part, pIdxs []loadIdx) error {
 	fetchBegin := time.Now()
 
 	// Get a reader for the required range.
@@ -2637,7 +2635,7 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		// There is also crc32 after the chunk, but we ignore that.
 		chunkLen = n + 1 + int(chunkDataLen)
 		if chunkLen <= len(cb) {
-			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), cb[n:chunkLen], aggrs, r.getChunk, r.save)
+			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), cb[n:chunkLen], r.getChunk, r.save)
 			if err != nil {
 				return errors.Wrap(err, "populate chunk")
 			}
@@ -2669,7 +2667,7 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		r.stats.chunksFetchDurationSum += time.Since(fetchBegin)
 		r.stats.chunksFetchedSizeSum += len(*nb)
 
-		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), (*nb)[n:], aggrs, r.getChunk, r.save)
+		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), (*nb)[n:], r.getChunk, r.save)
 		if err != nil {
 			r.block.chunkBytesPool.Put(nb)
 			return errors.Wrap(err, "populate chunk")
