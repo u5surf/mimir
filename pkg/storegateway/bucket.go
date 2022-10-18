@@ -2515,8 +2515,8 @@ func (r *bucketChunkReader) Close() error {
 	for _, b := range r.chunkBytes {
 		r.block.chunkBytesPool.Put(b)
 	}
-	for _, s := range r.chunkSlices {
-		r.block.chunkSlicePool.put(s)
+	for _, sl := range r.chunkSlices {
+		r.block.chunkSlicePool.put(sl)
 	}
 	return nil
 }
@@ -2556,10 +2556,7 @@ func (r *bucketChunkReader) load(res []seriesEntry) error {
 			})
 		}
 	}
-	if err := g.Wait(); err != nil {
-		return err
-	}
-	return nil
+	return g.Wait()
 }
 
 // loadChunks will read range [start, end] from the segment file with sequence number seq.

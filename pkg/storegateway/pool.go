@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	chunkSliceSize = 10_000
+	chunkSliceSize = 16_384 // An arbitrary size limit, susceptible to change.
 )
 
 type chunkBytesPool struct {
