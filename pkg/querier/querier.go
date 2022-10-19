@@ -383,7 +383,12 @@ func (q querier) LabelNames(matchers ...*labels.Matcher) ([]string, storage.Warn
 	return util.MergeSlices(sets...), warnings, nil
 }
 
-func (querier) Close() error {
+func (q querier) Close() error {
+	for _, querier := range q.queriers {
+		if err := querier.Close(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

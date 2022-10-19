@@ -257,7 +257,9 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 		defer stream.CloseSend() //nolint:errcheck
 
 		for {
-			resp, err := stream.Recv()
+			var resp ingester_client.WrappedQueryStreamResponse
+
+			err := stream.(ingester_client.Ingester_QueryStreamClient_WrappedReceiver).RecvWrapped(&resp)
 			if errors.Is(err, io.EOF) {
 				break
 			} else if err != nil {
@@ -290,7 +292,7 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 			select {
 			case <-stop:
 				return nil, nil
-			case results <- resp:
+			case results <- resp.QueryStreamResponse:
 			}
 		}
 		return nil, nil

@@ -4039,6 +4039,15 @@ func (s *stream) Recv() (*client.QueryStreamResponse, error) {
 	return result, nil
 }
 
+func (s *stream) RecvWrapped(m *client.WrappedQueryStreamResponse) error {
+	res, err := s.Recv()
+	if err != nil {
+		return err
+	}
+	m.QueryStreamResponse = res
+	return nil
+}
+
 func (i *mockIngester) AllUserStats(ctx context.Context, in *client.UserStatsRequest, opts ...grpc.CallOption) (*client.UsersStatsResponse, error) {
 	return &i.stats, nil
 }

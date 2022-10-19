@@ -78,6 +78,7 @@ type distributorQuerier struct {
 	mint, maxt           int64
 	chunkIterFn          chunkIteratorFunc
 	queryIngestersWithin time.Duration
+	results              []*client.QueryStreamResponse // Stream responses to reuse on close.
 }
 
 // Select implements storage.Querier interface.
@@ -118,6 +119,7 @@ func (q *distributorQuerier) streamingSelect(ctx context.Context, minT, maxT int
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
+	q.results = append(q.results, results)
 
 	sets := []storage.SeriesSet(nil)
 	if len(results.Timeseries) > 0 {
@@ -190,6 +192,9 @@ func (q *distributorQuerier) LabelNames(matchers ...*labels.Matcher) ([]string, 
 }
 
 func (q *distributorQuerier) Close() error {
+	for _, res := range q.results {
+		client.ReuseQueryStreamResponse(res)
+	}
 	return nil
 }
 
