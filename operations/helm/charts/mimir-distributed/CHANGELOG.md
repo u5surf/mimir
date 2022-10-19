@@ -47,7 +47,7 @@ Entries should include a reference to the Pull Request that introduced the chang
   Mimir under the `metamonitoring` tenant; this enhancement does not apply to GEM. #3176
 * [ENHANCEMENT] Improve default rollout strategies. Now distributor, overrides_exporter, querier, query_frontend, admin_api, gateway, and graphite components can be upgraded more quickly and also can be rolled out with a single replica without downtime. #3029
 * [ENHANCEMENT] Metamonitoring: make scrape interval configurable. #2945
-* [ENHANCEMENT] Add ability to manage PrometheusRule from helm chart. #2134
+* [ENHANCEMENT] Add ability to manage PrometheusRule for metamonitoring with Prometheus operator from the Helm chart. If `serviceMonitor` is enabled, alerts and rules standard to Mimir will be deployed. To disable them, set `mimirAlerts` and `mimirRules` to `false`. #2134 #2609
 * [BUGFIX] Fix an issue that caused metamonitoring secrets to be created incorrectly #3170
 * [BUGFIX] Nginx: fixed `imagePullSecret` value reference inconsistency. #3208
 * [BUGFIX] Move the activity tracker log from /data to /active-query-tracker to remove ignore log messages. #3169
