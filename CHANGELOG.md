@@ -26,6 +26,7 @@
 * [ENHANCEMENT] Clarify which S3 signature versions are supported in the error "unsupported signature version". #3376
 * [ENHANCEMENT] Store-gateway: improved index header reading performance. #3393
 * [ENHANCEMENT] Store-gateway: improved performance of series matching. #3391
+* [ENHANCEMENT] Querier: Reduce allocations on query stream response unmarshal. #3295
 * [BUGFIX] Flusher: Add `Overrides` as a dependency to prevent panics when starting with `-target=flusher`. #3151
 * [BUGFIX] Updated `golang.org/x/text` dependency to fix CVE-2022-32149. #3285
 * [BUGFIX] Query-frontend: properly close gRPC streams to the query-scheduler to stop memory and goroutines leak. #3302
