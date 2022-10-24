@@ -88,7 +88,7 @@ func BenchmarkQueryStreamResponseUnmarshal(b *testing.B) {
 		{name: "10 series, 100 chunks, 100 samples", numSeries: 10, numChunksPerSeries: 100, numSamplesPerSeries: 100},
 		{name: "100 series, 1k chunks, 1k samples", numSeries: 100, numChunksPerSeries: 1_000, numSamplesPerSeries: 1_000},
 		{name: "100 series, 10k chunks, 1k samples", numSeries: 100, numChunksPerSeries: 10_000, numSamplesPerSeries: 1_000},
-		{name: "1k series, 10k chunks, 1k samples", numSeries: 1_000, numChunksPerSeries: 10_000, numSamplesPerSeries: 10_000},
+		{name: "1k series, 10k chunks, 10k samples", numSeries: 1_000, numChunksPerSeries: 10_000, numSamplesPerSeries: 10_000},
 	}
 	for _, bc := range bcs {
 		b.Run(bc.name, func(b *testing.B) {
