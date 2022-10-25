@@ -20,9 +20,9 @@ var (
 	}
 )
 
-// Ingester_QueryStreamClient_WrappedReceiver extends the Ingester_QueryStreamClient interface
+// IngesterQueryStreamClientWrappedReceiver extends the Ingester_QueryStreamClient interface
 // adding a wrapped response receiver method.
-type Ingester_QueryStreamClient_WrappedReceiver interface {
+type IngesterQueryStreamClientWrappedReceiver interface {
 	Ingester_QueryStreamClient
 	RecvWrapped(*WrappedQueryStreamResponse) error
 }

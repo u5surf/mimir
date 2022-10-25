@@ -259,7 +259,7 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 		for {
 			var resp ingester_client.WrappedQueryStreamResponse
 
-			err := stream.(ingester_client.Ingester_QueryStreamClient_WrappedReceiver).RecvWrapped(&resp)
+			err := stream.(ingester_client.IngesterQueryStreamClientWrappedReceiver).RecvWrapped(&resp)
 			if errors.Is(err, io.EOF) {
 				break
 			} else if err != nil {
