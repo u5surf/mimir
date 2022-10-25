@@ -8,6 +8,7 @@ package querier
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 	"testing"
@@ -83,7 +84,9 @@ func TestDistributorQuerier_SelectShouldHonorQueryIngestersWithin(t *testing.T) 
 		t.Run(testName, func(t *testing.T) {
 			distributor := &mockDistributor{}
 			distributor.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(model.Matrix{}, nil)
-			distributor.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryStreamResponse{}, nil)
+			distributor.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryStreamResponse{}, util.CloserFunc(func() error {
+				return nil
+			}), nil)
 			distributor.On("MetricsForLabelMatchers", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]labels.Labels{}, nil)
 
 			ctx := user.InjectOrgID(context.Background(), "test")
@@ -161,6 +164,9 @@ func TestIngesterStreaming(t *testing.T) {
 				},
 			},
 		},
+		util.CloserFunc(func() error {
+			return nil
+		}),
 		nil)
 
 	ctx := user.InjectOrgID(context.Background(), "0")
@@ -237,6 +243,9 @@ func TestIngesterStreamingMixedResults(t *testing.T) {
 				},
 			},
 		},
+		util.CloserFunc(func() error {
+			return nil
+		}),
 		nil)
 
 	ctx := user.InjectOrgID(context.Background(), "0")
@@ -319,7 +328,9 @@ func BenchmarkDistributorQueryable_Select(b *testing.B) {
 	}
 
 	d := &mockDistributor{}
-	d.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(response, nil)
+	d.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(response, util.CloserFunc(func() error {
+		return nil
+	}), nil)
 
 	ctx := user.InjectOrgID(context.Background(), "0")
 	queryable := newDistributorQueryable(d, mergeChunks, 0, log.NewNopLogger())
@@ -379,9 +390,9 @@ func (m *mockDistributor) QueryExemplars(ctx context.Context, from, to model.Tim
 	args := m.Called(ctx, from, to, matchers)
 	return args.Get(0).(*client.ExemplarQueryResponse), args.Error(1)
 }
-func (m *mockDistributor) QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*client.QueryStreamResponse, error) {
+func (m *mockDistributor) QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*client.QueryStreamResponse, io.Closer, error) {
 	args := m.Called(ctx, from, to, matchers)
-	return args.Get(0).(*client.QueryStreamResponse), args.Error(1)
+	return args.Get(0).(*client.QueryStreamResponse), args.Get(1).(io.Closer), args.Error(2)
 }
 func (m *mockDistributor) LabelValuesForLabelName(ctx context.Context, from, to model.Time, lbl model.LabelName, matchers ...*labels.Matcher) ([]string, error) {
 	args := m.Called(ctx, from, to, lbl, matchers)

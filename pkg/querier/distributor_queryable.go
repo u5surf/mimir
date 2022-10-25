@@ -7,6 +7,7 @@ package querier
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/go-kit/log"
@@ -28,7 +29,7 @@ import (
 // Distributor is the read interface to the distributor, made an interface here
 // to reduce package coupling.
 type Distributor interface {
-	QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*client.QueryStreamResponse, error)
+	QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*client.QueryStreamResponse, io.Closer, error)
 	QueryExemplars(ctx context.Context, from, to model.Time, matchers ...[]*labels.Matcher) (*client.ExemplarQueryResponse, error)
 	LabelValuesForLabelName(ctx context.Context, from, to model.Time, label model.LabelName, matchers ...*labels.Matcher) ([]string, error)
 	LabelNames(ctx context.Context, from model.Time, to model.Time, matchers ...*labels.Matcher) ([]string, error)
@@ -78,7 +79,7 @@ type distributorQuerier struct {
 	mint, maxt           int64
 	chunkIterFn          chunkIteratorFunc
 	queryIngestersWithin time.Duration
-	results              []*client.QueryStreamResponse // Stream responses to reuse on close.
+	closers              []io.Closer // Closer handlers to be invoked on close.
 }
 
 // Select implements storage.Querier interface.
@@ -115,11 +116,11 @@ func (q *distributorQuerier) Select(_ bool, sp *storage.SelectHints, matchers ..
 }
 
 func (q *distributorQuerier) streamingSelect(ctx context.Context, minT, maxT int64, matchers []*labels.Matcher) storage.SeriesSet {
-	results, err := q.distributor.QueryStream(ctx, model.Time(minT), model.Time(maxT), matchers...)
+	results, closer, err := q.distributor.QueryStream(ctx, model.Time(minT), model.Time(maxT), matchers...)
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
-	q.results = append(q.results, results)
+	q.closers = append(q.closers, closer)
 
 	sets := []storage.SeriesSet(nil)
 	if len(results.Timeseries) > 0 {
@@ -192,8 +193,10 @@ func (q *distributorQuerier) LabelNames(matchers ...*labels.Matcher) ([]string, 
 }
 
 func (q *distributorQuerier) Close() error {
-	for _, res := range q.results {
-		client.ReuseQueryStreamResponse(res)
+	for _, closer := range q.closers {
+		if err := closer.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
