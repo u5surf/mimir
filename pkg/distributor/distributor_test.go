@@ -1012,7 +1012,7 @@ func TestDistributor_PushQuery(t *testing.T) {
 			writeResponse, err := ds[0].Push(ctx, request)
 			assert.Equal(t, &mimirpb.WriteResponse{}, writeResponse)
 			assert.Nil(t, err)
-			
+
 			series, _, err := ds[0].QueryStream(ctx, 0, 10, tc.matchers...)
 
 			if tc.expectedError == nil {

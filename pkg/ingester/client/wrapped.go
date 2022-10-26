@@ -22,6 +22,8 @@ var (
 
 // IngesterQueryStreamClientWrappedReceiver extends the Ingester_QueryStreamClient interface
 // adding a wrapped response receiver method.
+// The purpose of using this method instead of the default Ingester_QueryStreamClient.Recv is to allow us to unmarshal
+// stream responses using our custom wrapped type, so that we can reuse chunk slices.
 type IngesterQueryStreamClientWrappedReceiver interface {
 	Ingester_QueryStreamClient
 	RecvWrapped(*WrappedQueryStreamResponse) error

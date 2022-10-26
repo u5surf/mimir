@@ -186,7 +186,7 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 	var (
 		queryLimiter = limiter.QueryLimiterFromContextWithFallback(ctx)
 		reqStats     = stats.FromContext(ctx)
-		resultsCh    = make(chan *ingester_client.QueryStreamResponse)
+		results      = make(chan *ingester_client.QueryStreamResponse)
 		responses    = make([]*ingester_client.QueryStreamResponse, 0, len(replicationSet.Instances))
 		// Note we can't signal goroutines to stop by closing 'results', because it has multiple concurrent senders.
 		stop        = make(chan struct{}) // Signal all background goroutines to stop.
@@ -216,7 +216,7 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 			select {
 			case <-stop:
 				return
-			case response := <-resultsCh:
+			case response := <-results:
 				// Accumulate any chunk series
 				for _, series := range response.Chunkseries {
 					key := ingester_client.LabelsToKeyString(mimirpb.FromLabelAdaptersToLabels(series.Labels))
@@ -297,7 +297,7 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 			select {
 			case <-stop:
 				return nil, nil
-			case resultsCh <- resp.QueryStreamResponse:
+			case results <- resp.QueryStreamResponse:
 			}
 		}
 		return nil, nil
