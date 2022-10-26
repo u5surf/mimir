@@ -1013,7 +1013,7 @@ func TestDistributor_PushQuery(t *testing.T) {
 			assert.Equal(t, &mimirpb.WriteResponse{}, writeResponse)
 			assert.Nil(t, err)
 
-			series, _, err := ds[0].QueryStream(ctx, 0, 10, tc.matchers...)
+			series, err := ds[0].QueryStream(ctx, 0, 10, tc.matchers...)
 
 			if tc.expectedError == nil {
 				require.NoError(t, err)
@@ -1077,7 +1077,7 @@ func TestDistributor_QueryStream_ShouldReturnErrorIfMaxChunksPerQueryLimitIsReac
 
 	// Since the number of series (and thus chunks) is equal to the limit (but doesn't
 	// exceed it), we expect a query running on all series to succeed.
-	queryRes, _, err := ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
+	queryRes, err := ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
 	require.NoError(t, err)
 	assert.Len(t, queryRes.Chunkseries, initialSeries)
 
@@ -1095,7 +1095,7 @@ func TestDistributor_QueryStream_ShouldReturnErrorIfMaxChunksPerQueryLimitIsReac
 
 	// Since the number of series (and thus chunks) is exceeding to the limit, we expect
 	// a query running on all series to fail.
-	_, _, err = ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
+	_, err = ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "the query exceeded the maximum number of chunks")
 }
@@ -1129,7 +1129,7 @@ func TestDistributor_QueryStream_ShouldReturnErrorIfMaxSeriesPerQueryLimitIsReac
 
 	// Since the number of series is equal to the limit (but doesn't
 	// exceed it), we expect a query running on all series to succeed.
-	queryRes, _, err := ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
+	queryRes, err := ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
 	require.NoError(t, err)
 	assert.Len(t, queryRes.Chunkseries, initialSeries)
 
@@ -1145,7 +1145,7 @@ func TestDistributor_QueryStream_ShouldReturnErrorIfMaxSeriesPerQueryLimitIsReac
 
 	// Since the number of series is exceeding the limit, we expect
 	// a query running on all series to fail.
-	_, _, err = ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
+	_, err = ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "the query exceeded the maximum number of series")
 }
@@ -1179,7 +1179,7 @@ func TestDistributor_QueryStream_ShouldReturnErrorIfMaxChunkBytesPerQueryLimitIs
 	writeRes, err := ds[0].Push(ctx, writeReq)
 	assert.Equal(t, &mimirpb.WriteResponse{}, writeRes)
 	assert.Nil(t, err)
-	chunkSizeResponse, _, err := ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
+	chunkSizeResponse, err := ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
 	require.NoError(t, err)
 
 	// Use the resulting chunks size to calculate the limit as (series to add + our test series) * the response chunk size.
@@ -1197,7 +1197,7 @@ func TestDistributor_QueryStream_ShouldReturnErrorIfMaxChunkBytesPerQueryLimitIs
 
 	// Since the number of chunk bytes is equal to the limit (but doesn't
 	// exceed it), we expect a query running on all series to succeed.
-	queryRes, _, err := ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
+	queryRes, err := ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
 	require.NoError(t, err)
 	assert.Len(t, queryRes.Chunkseries, seriesToAdd)
 
@@ -1213,7 +1213,7 @@ func TestDistributor_QueryStream_ShouldReturnErrorIfMaxChunkBytesPerQueryLimitIs
 
 	// Since the aggregated chunk size is exceeding the limit, we expect
 	// a query running on all series to fail.
-	_, _, err = ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
+	_, err = ds[0].QueryStream(ctx, math.MinInt32, math.MaxInt32, allSeriesMatchers...)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, fmt.Sprintf(limiter.MaxChunkBytesHitMsgFormat, maxBytesLimit))
 }
@@ -1863,7 +1863,7 @@ func TestSlowQueries(t *testing.T) {
 				queryDelay:      100 * time.Millisecond,
 			})
 
-			_, _, err := ds[0].QueryStream(ctx, 0, 10, nameMatcher)
+			_, err := ds[0].QueryStream(ctx, 0, 10, nameMatcher)
 			assert.Equal(t, expectedErr, err)
 		})
 	}
@@ -3795,7 +3795,6 @@ func (i *mockIngester) QueryStream(ctx context.Context, req *client.QueryRequest
 			},
 		})
 	}
-
 	return &stream{
 		results: results,
 	}, nil
@@ -4045,7 +4044,15 @@ func (s *stream) RecvWrapped(m *client.WrappedQueryStreamResponse) error {
 	if err != nil {
 		return err
 	}
-	m.QueryStreamResponse = res
+	// Make a deep copy of TimeSeriesChunk objects, as caller will put them into a sync.Pool.
+	chunkSeries := make([]client.TimeSeriesChunk, len(res.Chunkseries))
+	for i := 0; i < len(res.Chunkseries); i++ {
+		chunkSeries[i] = client.CopyTimeSeriesChunk(res.Chunkseries[i])
+	}
+	m.QueryStreamResponse = &client.QueryStreamResponse{
+		Chunkseries: chunkSeries,
+		Timeseries:  res.Timeseries,
+	}
 	return nil
 }
 

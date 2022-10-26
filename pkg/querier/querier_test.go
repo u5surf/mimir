@@ -8,7 +8,6 @@ package querier
 import (
 	"context"
 	"fmt"
-	"io"
 	"strconv"
 	"testing"
 	"time"
@@ -121,9 +120,7 @@ func TestQuerier(t *testing.T) {
 				// No samples returned by ingesters.
 				distributor := &mockDistributor{}
 				distributor.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryResponse{}, nil)
-				distributor.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryStreamResponse{}, util.CloserFunc(func() error {
-					return nil
-				}), nil)
+				distributor.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryStreamResponse{}, nil)
 
 				overrides, err := validation.NewOverrides(defaultLimitsConfig(), nil)
 				require.NoError(t, err)
@@ -194,9 +191,6 @@ func TestQuerier_QueryableReturnsChunksOutsideQueriedRange(t *testing.T) {
 				},
 			},
 		},
-		util.CloserFunc(func() error {
-			return nil
-		}),
 		nil)
 
 	overrides, err := validation.NewOverrides(defaultLimitsConfig(), nil)
@@ -414,9 +408,7 @@ func TestQuerier_ValidateQueryTimeRange_MaxQueryIntoFuture(t *testing.T) {
 			// We don't need to query any data for this test, so an empty store is fine.
 			distributor := &mockDistributor{}
 			distributor.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(model.Matrix{}, nil)
-			distributor.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryStreamResponse{}, util.CloserFunc(func() error {
-				return nil
-			}), nil)
+			distributor.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryStreamResponse{}, nil)
 
 			overrides, err := validation.NewOverrides(defaultLimitsConfig(), nil)
 			require.NoError(t, err)
@@ -612,9 +604,7 @@ func TestQuerier_ValidateQueryTimeRange_MaxQueryLookback(t *testing.T) {
 			t.Run("query range", func(t *testing.T) {
 				distributor := &mockDistributor{}
 				distributor.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(model.Matrix{}, nil)
-				distributor.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryStreamResponse{}, util.CloserFunc(func() error {
-					return nil
-				}), nil)
+				distributor.On("QueryStream", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&client.QueryStreamResponse{}, nil)
 
 				queryable, _, _ := New(cfg, overrides, distributor, nil, nil, log.NewNopLogger(), nil)
 				require.NoError(t, err)
@@ -846,8 +836,8 @@ var errDistributorError = fmt.Errorf("errDistributorError")
 func (m *errDistributor) Query(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (model.Matrix, error) {
 	return nil, errDistributorError
 }
-func (m *errDistributor) QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*client.QueryStreamResponse, io.Closer, error) {
-	return nil, nil, errDistributorError
+func (m *errDistributor) QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*client.QueryStreamResponse, error) {
+	return nil, errDistributorError
 }
 func (m *errDistributor) QueryExemplars(ctx context.Context, from, to model.Time, matchers ...[]*labels.Matcher) (*client.ExemplarQueryResponse, error) {
 	return nil, errDistributorError
@@ -880,10 +870,8 @@ func (d *emptyDistributor) Query(ctx context.Context, from, to model.Time, match
 	return nil, nil
 }
 
-func (d *emptyDistributor) QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*client.QueryStreamResponse, io.Closer, error) {
-	return &client.QueryStreamResponse{}, util.CloserFunc(func() error {
-		return nil
-	}), nil
+func (d *emptyDistributor) QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*client.QueryStreamResponse, error) {
+	return &client.QueryStreamResponse{}, nil
 }
 
 func (d *emptyDistributor) QueryExemplars(ctx context.Context, from, to model.Time, matchers ...[]*labels.Matcher) (*client.ExemplarQueryResponse, error) {

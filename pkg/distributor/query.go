@@ -22,7 +22,6 @@ import (
 	ingester_client "github.com/grafana/mimir/pkg/ingester/client"
 	"github.com/grafana/mimir/pkg/mimirpb"
 	"github.com/grafana/mimir/pkg/querier/stats"
-	"github.com/grafana/mimir/pkg/util"
 	"github.com/grafana/mimir/pkg/util/limiter"
 	"github.com/grafana/mimir/pkg/util/validation"
 )
@@ -55,10 +54,8 @@ func (d *Distributor) QueryExemplars(ctx context.Context, from, to model.Time, m
 }
 
 // QueryStream multiple ingesters via the streaming interface and returns big ol' set of chunks.
-func (d *Distributor) QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*ingester_client.QueryStreamResponse, io.Closer, error) {
+func (d *Distributor) QueryStream(ctx context.Context, from, to model.Time, matchers ...*labels.Matcher) (*ingester_client.QueryStreamResponse, error) {
 	var result *ingester_client.QueryStreamResponse
-	var cleanup io.Closer
-
 	err := instrument.CollectedRequest(ctx, "Distributor.QueryStream", d.queryDuration, instrument.ErrorCode, func(ctx context.Context) error {
 		req, err := ingester_client.ToQueryRequest(from, to, matchers)
 		if err != nil {
@@ -70,7 +67,7 @@ func (d *Distributor) QueryStream(ctx context.Context, from, to model.Time, matc
 			return err
 		}
 
-		result, cleanup, err = d.queryIngesterStream(ctx, replicationSet, req)
+		result, err = d.queryIngesterStream(ctx, replicationSet, req)
 		if err != nil {
 			return err
 		}
@@ -80,7 +77,7 @@ func (d *Distributor) QueryStream(ctx context.Context, from, to model.Time, matc
 		}
 		return nil
 	})
-	return result, cleanup, err
+	return result, err
 }
 
 // GetIngesters returns a replication set including all ingesters.
@@ -182,7 +179,7 @@ func mergeExemplarQueryResponses(results []interface{}) *ingester_client.Exempla
 }
 
 // queryIngesterStream queries the ingesters using the new streaming API.
-func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ring.ReplicationSet, req *ingester_client.QueryRequest) (*ingester_client.QueryStreamResponse, io.Closer, error) {
+func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ring.ReplicationSet, req *ingester_client.QueryRequest) (*ingester_client.QueryStreamResponse, error) {
 	var (
 		queryLimiter = limiter.QueryLimiterFromContextWithFallback(ctx)
 		reqStats     = stats.FromContext(ctx)
@@ -304,7 +301,7 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 	})
 	close(stop)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Wait for reading loop to finish.
@@ -315,7 +312,9 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 		Timeseries:  make([]mimirpb.TimeSeries, 0, len(hashToTimeSeries)),
 	}
 	for _, series := range hashToChunkseries {
-		resp.Chunkseries = append(resp.Chunkseries, series)
+		// Make a deep copy of each TimeSeriesChunk object, as those
+		// could be reused after invoking ingester_client.ReuseQueryStreamResponse.
+		resp.Chunkseries = append(resp.Chunkseries, ingester_client.CopyTimeSeriesChunk(series))
 	}
 	for _, series := range hashToTimeSeries {
 		resp.Timeseries = append(resp.Timeseries, series)
@@ -325,13 +324,11 @@ func (d *Distributor) queryIngesterStream(ctx context.Context, replicationSet ri
 	reqStats.AddFetchedChunkBytes(uint64(resp.ChunksSize()))
 	reqStats.AddFetchedChunks(uint64(resp.ChunksCount()))
 
-	cleanup := util.CloserFunc(func() error {
-		for _, response := range responses {
-			ingester_client.ReuseQueryStreamResponse(response)
-		}
-		return nil
-	})
-	return resp, cleanup, nil
+	// Reuse ingester query stream responses.
+	for _, response := range responses {
+		ingester_client.ReuseQueryStreamResponse(response)
+	}
+	return resp, nil
 }
 
 // Merges and dedupes two sorted slices with samples together.

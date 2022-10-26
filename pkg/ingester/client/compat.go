@@ -256,3 +256,22 @@ func LabelsToKeyString(l labels.Labels) string {
 	b := make([]byte, 0, 1024)
 	return string(l.Bytes(b))
 }
+
+// CopyTimeSeriesChunk makes a deep copy of a TimeSeriesChunk object.
+func CopyTimeSeriesChunk(ts TimeSeriesChunk) TimeSeriesChunk {
+	lbs := make([]mimirpb.LabelAdapter, len(ts.Labels))
+	copy(lbs, ts.Labels)
+
+	chunks := make([]Chunk, len(ts.Chunks))
+	for j := 0; j < len(ts.Chunks); j++ {
+		chunks[j].Encoding = ts.Chunks[j].Encoding
+		chunks[j].StartTimestampMs = ts.Chunks[j].StartTimestampMs
+		chunks[j].EndTimestampMs = ts.Chunks[j].EndTimestampMs
+		chunks[j].Data = make([]byte, len(ts.Chunks[j].Data))
+		copy(chunks[j].Data, ts.Chunks[j].Data)
+	}
+	return TimeSeriesChunk{
+		Labels: lbs,
+		Chunks: chunks,
+	}
+}
