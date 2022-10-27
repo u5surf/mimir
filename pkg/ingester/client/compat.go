@@ -271,7 +271,9 @@ func CopyTimeSeriesChunk(ts TimeSeriesChunk) TimeSeriesChunk {
 		copy(chunks[j].Data, ts.Chunks[j].Data)
 	}
 	return TimeSeriesChunk{
-		Labels: lbs,
-		Chunks: chunks,
+		FromIngesterId: ts.FromIngesterId,
+		UserId:         ts.UserId,
+		Labels:         lbs,
+		Chunks:         chunks,
 	}
 }
