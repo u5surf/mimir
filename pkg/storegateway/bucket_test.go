@@ -1004,7 +1004,7 @@ func benchBucketSeries(t test.TB, skipChunk bool, samplesPerSeries, totalSeries 
 	}
 
 	// Create 4 blocks. Each will have seriesPerBlock number of series that have samplesPerSeriesPerBlock samples.
-	// Timestamp will be counted for each new series and new sample, so each each series will have unique timestamp.
+	// Timestamp will be counted for each new series and new sample, so each series will have unique timestamp.
 	// This allows to pick time range that will correspond to number of series picked 1:1.
 	for bi := 0; bi < numOfBlocks; bi++ {
 		head, bSeries := createHeadWithSeries(t, bi, headGenOptions{
@@ -1051,6 +1051,8 @@ func benchBucketSeries(t test.TB, skipChunk bool, samplesPerSeries, totalSeries 
 		NewBucketStoreMetrics(nil),
 		WithLogger(logger),
 		WithChunkPool(chunkPool),
+		WithBatchedSeries(true),
+		WithBatchSeriesSize(65536),
 	)
 	assert.NoError(t, err)
 
@@ -1260,9 +1262,11 @@ func TestBucketSeries_OneBlock_InMemIndexCacheSegfault(t *testing.T) {
 			b1.meta.ULID: b1,
 			b2.meta.ULID: b2,
 		},
-		queryGate:            gate.NewNoop(),
-		chunksLimiterFactory: NewChunksLimiterFactory(0),
-		seriesLimiterFactory: NewSeriesLimiterFactory(0),
+		queryGate:                     gate.NewNoop(),
+		chunksLimiterFactory:          NewChunksLimiterFactory(0),
+		seriesLimiterFactory:          NewSeriesLimiterFactory(0),
+		disableSeriesLoadingInBatches: false,
+		seriesPerBatch:                65536,
 	}
 
 	t.Run("invoke series for one block. Fill the cache on the way.", func(t *testing.T) {
@@ -1414,6 +1418,8 @@ func TestSeries_ErrorUnmarshallingRequestHints(t *testing.T) {
 		NewBucketStoreMetrics(nil),
 		WithLogger(logger),
 		WithIndexCache(indexCache),
+		WithBatchedSeries(true),
+		WithBatchSeriesSize(65536),
 	)
 	assert.NoError(t, err)
 	defer func() { assert.NoError(t, store.RemoveBlocksAndClose()) }()
@@ -1505,6 +1511,8 @@ func TestSeries_BlockWithMultipleChunks(t *testing.T) {
 		NewBucketStoreMetrics(nil),
 		WithLogger(logger),
 		WithIndexCache(indexCache),
+		WithBatchedSeries(true),
+		WithBatchSeriesSize(65536),
 	)
 	assert.NoError(t, err)
 	assert.NoError(t, store.SyncBlocks(context.Background()))
@@ -1689,6 +1697,8 @@ func setupStoreForHintsTest(t *testing.T) (test.TB, *BucketStore, []*storepb.Ser
 		NewBucketStoreMetrics(nil),
 		WithLogger(logger),
 		WithIndexCache(indexCache),
+		WithBatchedSeries(true),
+		WithBatchSeriesSize(65536),
 	)
 	assert.NoError(tb, err)
 	assert.NoError(tb, store.SyncBlocks(context.Background()))
