@@ -10,13 +10,8 @@ import (
 	"github.com/grafana/mimir/pkg/mimirpb"
 )
 
-const (
-	maxInPoolLabelsSliceSize = 16_384
-	maxInPoolChunksSliceSize = 32_768
-)
-
 var (
-	chunkSlicesPool = sync.Pool{
+	chunksSlicePool = sync.Pool{
 		New: func() interface{} { return &[]Chunk{} },
 	}
 	labelsSlicePool = sync.Pool{
@@ -200,7 +195,7 @@ func (m *WrappedTimeSeriesChunk) XXX_Unmarshal(b []byte) error { return m.Unmars
 // fetching chunk and label slices from a sync.Pool.
 func (m *WrappedTimeSeriesChunk) Unmarshal(dAtA []byte) error {
 	// << NON AUTO-GENERATED CODE >>
-	m.Chunks = *(chunkSlicesPool.Get().(*[]Chunk))
+	m.Chunks = *(chunksSlicePool.Get().(*[]Chunk))
 	m.Labels = *(labelsSlicePool.Get().(*[]mimirpb.LabelAdapter))
 	m.Labels = m.Labels[:0]
 
@@ -418,14 +413,14 @@ func (m *WrappedTimeSeriesChunk) Unmarshal(dAtA []byte) error {
 // ReuseQueryStreamResponse puts chunk and label slices contained in qr back into a sync.Pool for reuse.
 func ReuseQueryStreamResponse(qr *QueryStreamResponse) {
 	for i := 0; i < len(qr.Chunkseries); i++ {
-		if len(qr.Chunkseries[i].Chunks) > maxInPoolChunksSliceSize || len(qr.Chunkseries[i].Labels) > maxInPoolLabelsSliceSize {
-			continue
-		}
 		for j := 0; j < len(qr.Chunkseries[i].Labels); j++ {
 			// Clear all label values to avoid retaining yolo string backed buffers.
 			qr.Chunkseries[i].Labels[j] = mimirpb.LabelAdapter{}
 		}
-		chunkSlicesPool.Put(&qr.Chunkseries[i].Chunks)
+		for j := 0; j < len(qr.Chunkseries[i].Chunks); j++ {
+			qr.Chunkseries[i].Chunks[j].Data = qr.Chunkseries[i].Chunks[j].Data[:0]
+		}
+		chunksSlicePool.Put(&qr.Chunkseries[i].Chunks)
 		labelsSlicePool.Put(&qr.Chunkseries[i].Labels)
 	}
 	qr.Chunkseries = nil
