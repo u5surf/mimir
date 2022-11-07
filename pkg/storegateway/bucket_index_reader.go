@@ -413,9 +413,9 @@ func (r *bucketIndexReader) fetchPostings(ctx context.Context, keys []labels.Lab
 				// Return postings and fill LRU cache.
 				// Truncate first 4 bytes which are length of posting.
 				output[p.keyID] = newBigEndianPostings(pBytes[4:])
+				r.mtx.Unlock()
 
 				r.block.indexCache.StorePostings(ctx, r.block.userID, r.block.meta.ULID, keys[p.keyID], dataToCache)
-				r.mtx.Unlock()
 
 				// If we just fetched it we still have to update the stats for touched postings.
 				stats.Lock()
@@ -523,8 +523,9 @@ func (r *bucketIndexReader) loadSeries(ctx context.Context, ids []storage.Series
 		c = c[n : n+int(l)]
 		r.mtx.Lock()
 		loaded.series[id] = c
-		r.block.indexCache.StoreSeriesForRef(ctx, r.block.userID, r.block.meta.ULID, id, c)
 		r.mtx.Unlock()
+
+		r.block.indexCache.StoreSeriesForRef(ctx, r.block.userID, r.block.meta.ULID, id, c)
 	}
 	return nil
 }
