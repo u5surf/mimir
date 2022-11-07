@@ -11,10 +11,10 @@ import (
 )
 
 var (
-	chunksSlicePool = sync.Pool{
+	chunkSlicePool = sync.Pool{
 		New: func() interface{} { return &[]Chunk{} },
 	}
-	labelsSlicePool = sync.Pool{
+	labelSlicePool = sync.Pool{
 		New: func() interface{} {
 			return &[]mimirpb.LabelAdapter{}
 		},
@@ -195,8 +195,8 @@ func (m *WrappedTimeSeriesChunk) XXX_Unmarshal(b []byte) error { return m.Unmars
 // fetching chunk and label slices from a sync.Pool.
 func (m *WrappedTimeSeriesChunk) Unmarshal(dAtA []byte) error {
 	// << NON AUTO-GENERATED CODE >>
-	m.Chunks = *(chunksSlicePool.Get().(*[]Chunk))
-	m.Labels = *(labelsSlicePool.Get().(*[]mimirpb.LabelAdapter))
+	m.Chunks = ChunkSliceFromPool()
+	m.Labels = LabelSliceFromPool()
 	m.Labels = m.Labels[:0]
 
 	reusedChunks := 0
@@ -420,8 +420,18 @@ func ReuseQueryStreamResponse(qr *QueryStreamResponse) {
 		for j := 0; j < len(qr.Chunkseries[i].Chunks); j++ {
 			qr.Chunkseries[i].Chunks[j].Data = qr.Chunkseries[i].Chunks[j].Data[:0]
 		}
-		chunksSlicePool.Put(&qr.Chunkseries[i].Chunks)
-		labelsSlicePool.Put(&qr.Chunkseries[i].Labels)
+		chunkSlicePool.Put(&qr.Chunkseries[i].Chunks)
+		labelSlicePool.Put(&qr.Chunkseries[i].Labels)
 	}
 	qr.Chunkseries = nil
+}
+
+// LabelSliceFromPool returns a slice of LabelAdapter from a sync.Pool.
+func LabelSliceFromPool() []mimirpb.LabelAdapter {
+	return *(labelSlicePool.Get().(*[]mimirpb.LabelAdapter))
+}
+
+// ChunkSliceFromPool returns a slice of chunks from a sync.Pool.
+func ChunkSliceFromPool() []Chunk {
+	return *(chunkSlicePool.Get().(*[]Chunk))
 }

@@ -4044,10 +4044,31 @@ func (s *stream) RecvWrapped(m *client.WrappedQueryStreamResponse) error {
 	if err != nil {
 		return err
 	}
-	// Make a deep copy of TimeSeriesChunk objects, as caller will put them into a sync.Pool.
+	// Create a copy of TimeSeriesChunk objects by reusing labels and chunk slices from client package sync.Pool.
 	chunkSeries := make([]client.TimeSeriesChunk, len(res.Chunkseries))
 	for i := 0; i < len(res.Chunkseries); i++ {
-		chunkSeries[i] = client.CopyTimeSeriesChunk(res.Chunkseries[i])
+		chunkSeries[i].Labels = client.LabelSliceFromPool()
+		chunkSeries[i].Labels = append(chunkSeries[i].Labels[:0], res.Chunkseries[i].Labels...)
+
+		chunks := client.ChunkSliceFromPool()
+
+		j := 0
+		for ; j < len(res.Chunkseries[i].Chunks); j++ {
+			if j < len(chunks) {
+				chunks[j].Encoding = res.Chunkseries[i].Chunks[j].Encoding
+				chunks[j].StartTimestampMs = res.Chunkseries[i].Chunks[j].StartTimestampMs
+				chunks[j].EndTimestampMs = res.Chunkseries[i].Chunks[j].EndTimestampMs
+				chunks[j].Data = append(chunks[j].Data[:0], res.Chunkseries[i].Chunks[j].Data...)
+			} else {
+				chunks = append(chunks, client.Chunk{
+					Encoding:         res.Chunkseries[i].Chunks[j].Encoding,
+					StartTimestampMs: res.Chunkseries[i].Chunks[j].StartTimestampMs,
+					EndTimestampMs:   res.Chunkseries[i].Chunks[j].StartTimestampMs,
+					Data:             append([]byte(nil), res.Chunkseries[i].Chunks[j].Data...),
+				})
+			}
+		}
+		chunkSeries[i].Chunks = chunks[:j]
 	}
 	m.QueryStreamResponse = &client.QueryStreamResponse{
 		Chunkseries: chunkSeries,
