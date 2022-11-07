@@ -60,12 +60,12 @@ func batchedBlockSeries(
 	if batchSize <= 0 {
 		return nil, errors.New("batch size must be a positive number")
 	}
-	if skipChunks {
-		res, ok := fetchCachedSeries(ctx, indexr.block.userID, indexr.block.indexCache, indexr.block.meta.ULID, matchers, shard, logger)
-		if ok {
-			return newBucketSeriesSet(res), nil
-		}
-	}
+	//if skipChunks {
+	//	res, ok := fetchCachedSeries(ctx, indexr.block.userID, indexr.block.indexCache, indexr.block.meta.ULID, matchers, shard, logger)
+	//	if ok {
+	//		return newBucketSeriesSet(res), nil
+	//	}
+	//}
 
 	ps, err := indexr.ExpandedPostings(ctx, matchers)
 	if err != nil {
@@ -209,17 +209,22 @@ func (s *batchedSeriesSet) preload() bool {
 		return s.preload() // we didn't find any suitable series in this batch, try with the next one
 	}
 
+	s.stats = s.stats.merge(s.indexr.stats)
+
 	if s.skipChunks {
 		storeCachedSeries(s.ctx, s.indexr.block.indexCache, s.indexr.block.userID, s.indexr.block.meta.ULID, s.matchers, s.shard, s.preloaded, s.logger)
 		return true
 	}
 
-	if err := s.chunkr.load(s.preloaded, s.loadAggregates); err != nil {
-		s.err = errors.Wrap(err, "load chunks")
-		return false
+	if !s.skipChunks {
+		s.stats = s.stats.merge(s.chunkr.stats)
+		if err := s.chunkr.load(s.preloaded, s.loadAggregates); err != nil {
+			s.err = errors.Wrap(err, "load chunks")
+			return false
+		}
+		return true
 	}
 
-	s.stats = s.stats.merge(s.indexr.stats).merge(s.chunkr.stats)
 	return true
 }
 
