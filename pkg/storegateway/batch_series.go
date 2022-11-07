@@ -251,10 +251,14 @@ func (s *batchedSeriesSet) Err() error {
 }
 
 func (s *batchedSeriesSet) CleanupFunc() func() {
+	if len(s.cleanupFuncs) == 0 {
+		return nil
+	}
+	cleanUps := s.cleanupFuncs[:]
+	s.cleanupFuncs = s.cleanupFuncs[len(s.cleanupFuncs):]
 	return func() {
-		for _, cleanup := range s.cleanupFuncs {
+		for _, cleanup := range cleanUps {
 			cleanup()
 		}
-		s.cleanupFuncs = s.cleanupFuncs[:0]
 	}
 }

@@ -85,7 +85,7 @@ func MergeSeriesSets(all ...SeriesSet) SeriesSet {
 type SeriesSet interface {
 	Next() bool
 	At() (labels.Labels, []AggrChunk)
-	// Cleanup can return a callback that the caller uses to confirm receiving and processing all the series returned
+	// CleanupFunc can return a callback that the caller uses to confirm receiving and processing all the series returned
 	// so far, including the current one. The callback can be used to clean up resources that are backing the series.
 	// The caller should not use the returned chunks after invoking the function returned by cleanup.
 	// Implementations can return a nil function.
@@ -258,7 +258,7 @@ func (s *uniqueSeriesSet) Next() bool {
 		}
 
 		if labels.Compare(lset, s.peek.PromLabels()) != 0 {
-			s.lset, s.chunks = s.peek.PromLabels(), s.peek.Chunks
+			s.lset, s.chunks, s.cleanup = s.peek.PromLabels(), s.peek.Chunks, s.peekCleanup
 			s.setPeek(lset, chks, cleanup)
 			return true
 		}
