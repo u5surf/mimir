@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -4353,6 +4355,104 @@ func TestSortLabels(t *testing.T) {
 	sort.SliceIsSorted(unsorted, func(i, j int) bool {
 		return unsorted[i].Name < unsorted[j].Name
 	})
+}
+
+func TestDistributor_QueryStreamCorrectness(t *testing.T) {
+	const (
+		totalQueries         = 1_000
+		maxConcurrentQueries = 10
+		totalSeries          = 5
+		maxSamplesPerSeries  = 480 // 2 hours at 1 sample every 15 seconds.
+	)
+
+	orgID := "user"
+	ctx := user.InjectOrgID(context.Background(), orgID)
+
+	// Prepare matchers sets and series.
+	matchers := make([][]*labels.Matcher, totalSeries)
+	for i := 0; i < totalSeries; i++ {
+		matchers[i] = []*labels.Matcher{
+			labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, fmt.Sprintf("n%d", i)),
+		}
+	}
+	series := make([]*mimirpb.PreallocTimeseries, totalSeries)
+	for i := 0; i < totalSeries; i++ {
+		ss := &mimirpb.PreallocTimeseries{
+			TimeSeries: &mimirpb.TimeSeries{
+				Labels: []mimirpb.LabelAdapter{
+					{Name: labels.MetricName, Value: fmt.Sprintf("n%d", i)},
+				},
+			},
+		}
+		totalSamples := rand.Int31n(maxSamplesPerSeries)
+		now := time.Now().Add(time.Hour * 2 * -1)
+
+		for j := int32(0); j < totalSamples; j++ {
+			ss.Samples = append(ss.Samples, mimirpb.Sample{
+				TimestampMs: now.Add(time.Second * 15 * time.Duration(j)).Unix(),
+				Value:       rand.Float64(),
+			})
+		}
+		series[i] = ss
+	}
+
+	// Set up distributors and ingesters.
+	ds, ingesters, _ := prepare(t, prepConfig{
+		numIngesters:    3,
+		happyIngesters:  3,
+		numDistributors: 1,
+	})
+	// Prepare ingester mocked series.
+	for i := 0; i < len(ingesters); i++ {
+		ingesters[i].timeseries = map[uint32]*mimirpb.PreallocTimeseries{}
+
+		for j := 0; j < totalSeries; j++ {
+			hash := shardByAllLabels(orgID, series[j].Labels)
+			ingesters[i].timeseries[hash] = series[j]
+		}
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(totalQueries)
+
+	// Run total queries concurrently asking for all possible series.
+	type queryResult struct {
+		seriesIdx int
+		resp      *client.QueryStreamResponse
+	}
+	results := make(chan queryResult, totalQueries)
+
+	indexes := atomic.NewInt64(-1)
+	for ix := 0; ix < maxConcurrentQueries; ix++ {
+		go func() {
+			for {
+				idx := int(indexes.Inc())
+				if idx >= totalQueries {
+					return
+				}
+				seriesIdx := idx % totalSeries
+
+				resp, err := ds[0].QueryStream(ctx, math.MinInt64, math.MaxInt64, matchers[seriesIdx]...)
+				require.NoError(t, err)
+
+				results <- queryResult{seriesIdx: seriesIdx, resp: resp}
+				wg.Done()
+			}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	seenRes := make(map[int]*client.QueryStreamResponse, totalQueries)
+	for res := range results {
+		prevRes, ok := seenRes[res.seriesIdx]
+		if !ok {
+			// Register returned response to be compared against on next iterations.
+			seenRes[res.seriesIdx] = res.resp
+			continue
+		}
+		require.True(t, reflect.DeepEqual(prevRes, res.resp))
+	}
 }
 
 func TestDistributor_Push_Relabel(t *testing.T) {
