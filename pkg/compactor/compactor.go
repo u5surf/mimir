@@ -111,6 +111,9 @@ type Config struct {
 	// Allow downstream projects to customise the blocks compactor.
 	BlocksGrouperFactory   BlocksGrouperFactory   `yaml:"-"`
 	BlocksCompactorFactory BlocksCompactorFactory `yaml:"-"`
+
+	// used for unit tests only
+	disableBackgroundValidationInFinishBlockUpload bool `yaml:"-"`
 }
 
 // RegisterFlags registers the MultitenantCompactor flags.
