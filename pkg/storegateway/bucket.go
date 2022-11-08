@@ -630,10 +630,10 @@ func blockSeries(
 		)
 
 		// Keep track of postings lookup stats in a dedicated stats structure that doesn't require lock
-		// and then merge it once done. We do it to avoid a lock of lock contention because loadSeriesForTime()
+		// and then merge it once done. We do it to avoid the lock overhead because loadSeriesForTime()
 		// may be called many times.
 		defer func() {
-			indexStats.merge(postingsStats)
+			indexStats = indexStats.merge(postingsStats)
 		}()
 
 		for _, id := range ps {

@@ -118,13 +118,14 @@ func (s *safeQueryStats) update(fn func(stats *queryStats)) {
 	fn(s.unsafeStats)
 }
 
-// merge the statistics while holding the lock.
+// merge the statistics while holding the lock. Returns a new object with the merged statistics.
 func (s *safeQueryStats) merge(o *queryStats) *safeQueryStats {
 	s.unsafeStatsMx.Lock()
 	defer s.unsafeStatsMx.Unlock()
 
-	s.unsafeStats.merge(o)
-	return s
+	return &safeQueryStats{
+		unsafeStats: s.unsafeStats.merge(o),
+	}
 }
 
 // export returns a copy of the internal statistics.
