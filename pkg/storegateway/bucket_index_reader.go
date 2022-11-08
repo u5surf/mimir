@@ -410,8 +410,7 @@ func (r *bucketIndexReader) fetchPostings(ctx context.Context, keys []labels.Lab
 				}
 
 				r.mtx.Lock()
-				// Return postings and fill LRU cache.
-				// Truncate first 4 bytes which are length of posting.
+				// Return postings. Truncate first 4 bytes which are length of posting.
 				output[p.keyID] = newBigEndianPostings(pBytes[4:])
 				r.mtx.Unlock()
 
